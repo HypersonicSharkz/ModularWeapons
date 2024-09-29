@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using ThunderRoad;
-using UnityEngine;
-using static ThunderRoad.AI.Condition.TargetWithinRange;
-using static ThunderRoad.CreatureData;
 
 namespace ModularWeapons
 {
@@ -14,13 +8,9 @@ namespace ModularWeapons
     {
         public List<ModularPart> parts = new List<ModularPart>();
 
-        private List<ConnectionPoint> allConnectionPoints = new List<ConnectionPoint>();
-
-        private GameObject previewRenderer;
-
         protected override void Awake()
         {
-            allConnectionPoints = parts.SelectMany(p => p.connections).ToList();
+            gameObject.AddComponent<ConnectionHandler>();
         }
 
         protected override void Start()
@@ -28,16 +18,32 @@ namespace ModularWeapons
             data = new ItemData();
             data.id = "MWData";
             data.localizationId = "";
-            
+            data.slot = parts.Any(p => p.Item.data.slot == "Large") ? "Large" : parts.Any(p => p.Item.data.slot == "Medium") ? "Medium" : "Small";
+            data.flags = ItemFlags.Spinnable | ItemFlags.Jabbing;
+
             base.Awake();
+
+            InitializeAiModule();
+            InitializeStatModule();
+
+            //Main Handle for now
+            Handle main = handles.FirstOrDefault(h => h.GetComponentInParent<ModularPart>(true).connections.All(c => c.partType == PartType.Handle));
+            if (main != null)
+            {
+                mainHandleLeft = main;
+                mainHandleRight = main;
+            }
 
             data.entityModules = new List<string>();
             LoadData(data);
 
             base.Start();
 
-            SetupPreview();
+            CreateCustomData();
+        }
 
+        private void CreateCustomData()
+        {
             ModularCustomData modularCustomData = new ModularCustomData();
 
             List<ConnectionPoint> connections = new List<ConnectionPoint>();
@@ -73,97 +79,77 @@ namespace ModularWeapons
             AddCustomData<ModularCustomData>(modularCustomData);
         }
 
-        private void Update()
+        private void InitializeAiModule()
         {
-            if (previewRenderer == null)
-                return;
+            bool isDoubleHanded = handles.Any(h => h.axisLength > 0);
+            ItemModuleAI moduleAI = new ItemModuleAI();
 
-            ConnectionPoint closestTargetPoint = null;
-            ConnectionPoint closestSourcePoint = null;
-            float closestDist = float.PositiveInfinity;
+            moduleAI.primaryClass = ItemModuleAI.WeaponClass.Melee;
 
-            foreach (ConnectionPoint targetPoint in ConnectionPoint.AllConnectionPoints)
+            if (isDoubleHanded)
             {
-                if (this.allConnectionPoints.Contains(targetPoint))
-                    continue;
-
-                foreach (ConnectionPoint sourcePoint in this.allConnectionPoints)
+                moduleAI.weaponHandling = ItemModuleAI.WeaponHandling.TwoHanded;
+                moduleAI.defaultStanceInfo = new ItemModuleAI.StanceInfo()
                 {
-                    if (!targetPoint.CanConnectToPoint(sourcePoint))
-                        continue;
-
-                    float dist = Vector3.Distance(sourcePoint.transform.position, targetPoint.transform.position);
-                    if (dist < closestDist)
+                    offhand = ItemModuleAI.StanceInfo.Offhand.Anything,
+                    grabAIHandleRadius = 0.0f,
+                    stanceDataID = "HumanMelee1hStance"
+                };
+                moduleAI.stanceInfosByOffhand = new List<ItemModuleAI.StanceInfo>
+                {
+                    new ItemModuleAI.StanceInfo()
                     {
-                        closestTargetPoint = targetPoint;
-                        closestSourcePoint = sourcePoint;
-                        closestDist = dist;
+                        offhand = ItemModuleAI.StanceInfo.Offhand.SameItem,
+                        grabAIHandleRadius = 0.0f,
+                        stanceDataID = ""
                     }
-                }
-            }
-
-
-            if (closestDist < 0.2f)
-            {
-                //Show preview of connection
-                previewRenderer.SetActive(true);
-
-                previewRenderer.transform.position = transform.position;
-                previewRenderer.transform.rotation = transform.rotation;
-
-                Vector3 targetPosition = closestTargetPoint.transform.position;
-
-                Quaternion targetRotation = Quaternion.LookRotation(-closestTargetPoint.transform.forward, Vector3.up);
-                Quaternion sourceRotation = Quaternion.LookRotation(closestSourcePoint.transform.forward, Vector3.up);
-
-                Vector3 localSourcePosition = previewRenderer.transform.InverseTransformPoint(closestSourcePoint.transform.position);
-                Vector3 localSourceUp = previewRenderer.transform.InverseTransformDirection(closestSourcePoint.transform.up);
-
-                Quaternion deltaRotation = targetRotation * Quaternion.Inverse(sourceRotation);
-
-                previewRenderer.transform.rotation = deltaRotation * previewRenderer.transform.rotation;
-
-                angle = Vector3.SignedAngle(previewRenderer.transform.TransformDirection(localSourceUp), closestTargetPoint.transform.up, closestSourcePoint.transform.forward);
-                if (Vector3.Dot(closestSourcePoint.transform.forward, closestTargetPoint.transform.forward) > 0)
-                    angle = -angle;
-
-                float snapped = SnapToStep(angle, 45);
-                float diffAngle = snapped - angle;
-
-                angle = snapped;
-
-                deltaRotation *= Quaternion.AngleAxis(diffAngle, closestTargetPoint.transform.forward);
-
-                previewRenderer.transform.rotation = Quaternion.AngleAxis(diffAngle, closestTargetPoint.transform.forward) * previewRenderer.transform.rotation;
-
-                // Align connector positions
-                Vector3 displacement = targetPosition - previewRenderer.transform.TransformPoint(localSourcePosition);
-                previewRenderer.transform.position += displacement;
+                };
             }
             else
             {
-                previewRenderer.SetActive(false);
+                moduleAI.weaponHandling = ItemModuleAI.WeaponHandling.OneHanded;
+                moduleAI.defaultStanceInfo = new ItemModuleAI.StanceInfo()
+                {
+                    offhand = ItemModuleAI.StanceInfo.Offhand.Anything,
+                    grabAIHandleRadius = 0.0f,
+                    stanceDataID = "HumanMelee1hStance"
+                };
+                moduleAI.stanceInfosByOffhand = new List<ItemModuleAI.StanceInfo>
+                {
+                    new ItemModuleAI.StanceInfo()
+                    {
+                        offhand = ItemModuleAI.StanceInfo.Offhand.Anything,
+                        grabAIHandleRadius = 0.0f,
+                        stanceDataID = "HumanMelee1hStance"
+                    },
+                    new ItemModuleAI.StanceInfo()
+                    {
+                        offhand = ItemModuleAI.StanceInfo.Offhand.AnyShield,
+                        grabAIHandleRadius = 0.0f,
+                        stanceDataID = "HumanMeleeShieldStance"
+                    },
+                    new ItemModuleAI.StanceInfo()
+                    {
+                        offhand = ItemModuleAI.StanceInfo.Offhand.AnyMelee,
+                        grabAIHandleRadius = 0.0f,
+                        stanceDataID = "HumanMeleeDualWieldStance"
+                    }
+                };
             }
         }
 
-        private void SetupPreview()
+        private void InitializeStatModule()
         {
-            previewRenderer = new GameObject("Preview Renderer");
-            previewRenderer.transform.position = transform.position;
-            previewRenderer.transform.rotation = transform.rotation;
-            foreach (Renderer renderer in GetComponentsInChildren<MeshRenderer>())
+            //TODO
+            return;
+            foreach (Item item in parts.Select(p => p.Item))
             {
-                GameObject obj = GameObject.Instantiate(renderer.gameObject, previewRenderer.transform, true);
-            }
-            previewRenderer.SetActive(false);
+                ItemModuleStats stats = (ItemModuleStats)item.data.modules.FirstOrDefault(m => m is ItemModuleStats);
 
-            StartCoroutine(Catalog.LoadAssetCoroutine<Material>("MW.PreviewMaterial", (mat) =>
-            {
-                foreach (Renderer rend in previewRenderer.GetComponentsInChildren<Renderer>())
-                {
-                    rend.material = mat;
-                }
-            }, name));
+                if (stats == null)
+                    continue;
+            }
+
         }
     }
 

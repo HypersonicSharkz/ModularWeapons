@@ -69,6 +69,7 @@
   <ItemGroup>
     <Compile Include="ConnectionPoint.cs" />
     <Compile Include="ConnectionPointOld.cs" />
+    <Compile Include="ConnectionHandler.cs" />
     <Compile Include="ModularPart.cs" />
     <Compile Include="ModularWeapon.cs" />
     <Compile Include="ModularWeaponsUtil.cs" />
